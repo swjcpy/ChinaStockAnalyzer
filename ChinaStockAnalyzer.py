@@ -64,7 +64,7 @@ except Exception as e:
 # --- Read uploaded file or use default ---
 if uploaded_file:
     try:
-        portfolio = pd.read_csv(uploaded_file)
+        portfolio = pd.read_csv(uploaded_file, dtype=object)
         st.success("投资组合上传成功")
     except Exception as e:
         st.error(f"读取CSV错误: {e}")
