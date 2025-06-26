@@ -178,15 +178,21 @@ st.dataframe(suggestion_df)
 # --- AI Analysis ---
 st.subheader("🧠 AI 投资建议")
 openai_api_key = st.secrets["OPENAI_API_KEY"] if "OPENAI_API_KEY" in st.secrets else None
-if openai_api_key:
+deepseek_api_key = st.secrets["DEEPSEEK_API_KEY"] if "DEEPSEEK_API_KEY" in st.secrets else None
+if deepseek_api_key:
+    # client = OpenAI(
+    #     api_key=openai_api_key
+    # )
     client = OpenAI(
-        api_key=openai_api_key
+        api_key=deepseek_api_key,
+        base_url = "https://api.deepseek.com"
     )
     
     # Default model; you can change to gpt-4 if you have access
     # MODEL = "gpt-4o-mini"
-    MODEL = "gpt-4.1-mini"
-    if st.button("🧾 使用 ChatGPT 分析投资组合"):
+    # MODEL = "gpt-4.1-mini"
+    MODEL = "deepseek-chat"
+    if st.button("🧾 使用 AI 分析投资组合"):
         prompt = f"请用中文总结以下中国股票投资组合的投资表现，股票代码无需市场前缀, 并结合市场情绪、短期技术指标（均线、RSI、MACD）, 市盈率, 市净率等提出操作建议：\n\n{result_df.to_string(index=False)}\n\n以下是根据技术指标提供的初步建议：\n{suggestion_df.to_string(index=False)}"
         try:
             resp = client.chat.completions.create(
@@ -196,13 +202,14 @@ if openai_api_key:
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.0,
-                max_tokens=1500
+                max_tokens=1500,
+                stream=False
             )
             st.write(resp.choices[0].message.content)
         except Exception as e:
-            st.error(f"OpenAI API error: {e}")
+            st.error(f"API error: {e}")
 else:
-    st.info("未配置 OpenAI API 密钥。请在 Streamlit secrets 中添加以启用 AI 分析。")
+    st.info("未配置 API 密钥。请在 Streamlit secrets 中添加以启用 AI 分析。")
 
 # --- Historical Performance ---
 # st.subheader("📈 股票价格表现 (1年归一化)")
