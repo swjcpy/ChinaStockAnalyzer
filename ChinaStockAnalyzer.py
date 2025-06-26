@@ -180,18 +180,18 @@ st.subheader("🧠 AI 投资建议")
 openai_api_key = st.secrets["OPENAI_API_KEY"] if "OPENAI_API_KEY" in st.secrets else None
 deepseek_api_key = st.secrets["DEEPSEEK_API_KEY"] if "DEEPSEEK_API_KEY" in st.secrets else None
 if deepseek_api_key:
-    # client = OpenAI(
-    #     api_key=openai_api_key
-    # )
     client = OpenAI(
-        api_key=deepseek_api_key,
-        base_url = "https://api.deepseek.com"
+        api_key=openai_api_key
     )
+    # client = OpenAI(
+    #     api_key=deepseek_api_key,
+    #     base_url = "https://api.deepseek.com"
+    # )
     
     # Default model; you can change to gpt-4 if you have access
-    # MODEL = "gpt-4o-mini"
+    MODEL = "gpt-4o-mini"
     # MODEL = "gpt-4.1-mini"
-    MODEL = "deepseek-chat"
+    # MODEL = "deepseek-chat"
     if st.button("🧾 使用 AI 分析投资组合"):
         prompt = f"请用中文总结以下中国股票投资组合的投资表现，股票代码无需市场前缀, 并结合市场情绪、短期技术指标（均线、RSI、MACD）, 市盈率, 市净率等提出操作建议：\n\n{result_df.to_string(index=False)}\n\n以下是根据技术指标提供的初步建议：\n{suggestion_df.to_string(index=False)}"
         try:
