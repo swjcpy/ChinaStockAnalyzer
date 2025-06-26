@@ -192,7 +192,8 @@ if deepseek_api_key:
     )
     MODEL = "gpt-4o-mini"
     if st.button("🗞 使用 AI 分析投资组合"):
-        prompt = f"""
+        with st.spinner("正在生成 AI 分析，请稍候..."):
+            prompt = f"""
 请用中文总结以下中国股票投资组合的投资表现，股票代码无需市场前缀, 并结合市场情绪、短期技术指标（均线、RSI、MACD）, OBV指标、成交量变化等提出操作建议：
 
 [投资概览]
@@ -204,22 +205,22 @@ if deepseek_api_key:
 [技术筛选匹配]
 {special_df.to_string(index=False)}
 
-如果你知道近期A股市场的热门题材（如：算力、稳定币、CPO），可以推荐可能相关的个股。
+如果你知道近期A股市场的热门题材（如：算力、稳定币、CPO），可以从上面表格中推荐可能相关的个股。
 """
-        try:
-            resp = client.chat.completions.create(
-                model=MODEL,
-                messages=[
-                    {"role": "system", "content": "你是一位有经验的中文金融顾问，擅长结合市场热点进行股票筛选。股票代码无需市场前缀."},
-                    {"role": "user", "content": prompt.strip()}
-                ],
-                temperature=0.3,
-                max_tokens=1800,
-                stream=False
-            )
-            st.write(resp.choices[0].message.content)
-        except Exception as e:
-            st.error(f"API error: {e}")
+            try:
+                resp = client.chat.completions.create(
+                    model=MODEL,
+                    messages=[
+                        {"role": "system", "content": "你是一位有经验的中文金融顾问，擅长结合市场热点进行股票筛选。股票代码无需市场前缀."},
+                        {"role": "user", "content": prompt.strip()}
+                    ],
+                    temperature=0.3,
+                    max_tokens=1800,
+                    stream=False
+                )
+                st.write(resp.choices[0].message.content)
+            except Exception as e:
+                st.error(f"API error: {e}")
 else:
     st.info("未配置 API 密钥。请在 Streamlit secrets 中添加以启用 AI 分析。")
 
