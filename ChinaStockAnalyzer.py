@@ -205,7 +205,7 @@ if deepseek_api_key:
 [技术筛选匹配]
 {special_df.to_string(index=False)}
 
-如果你知道近期A股市场的热门题材（如：算力、稳定币、CPO），可以从上面表格中推荐可能相关的个股。
+如果你知道近期A股市场的热门题材，可以从上面表格中推荐可能相关的个股。
 """
             try:
                 resp = client.chat.completions.create(
