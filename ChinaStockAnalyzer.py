@@ -9,12 +9,12 @@ from openai import OpenAI
 from datetime import timedelta
 from functools import reduce
 
-import urllib3
-urllib3.disable_warnings()
+# import urllib3
+# urllib3.disable_warnings()
 
 import akshare as ak
-import requests
-requests.packages.urllib3.disable_warnings()  # 关闭警告
+# import requests
+# requests.packages.urllib3.disable_warnings()  # 关闭警告
 
 # patch akshare 用的 requests，使其不验证证书
 original_get = requests.get
