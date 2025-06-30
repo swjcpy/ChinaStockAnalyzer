@@ -187,18 +187,34 @@ for ticker in portfolio["Ticker"]:
         # ----- Operation Suggestions -----
         # Calculate daily returns and volatility
         daily_returns = df["收盘"].pct_change().dropna()
-        daily_vol = daily_returns.std()
-        # Use 1-week swing (about 5 days)
-        target_pct = daily_vol * np.sqrt(5)
-        # Clip to reasonable range (2% ~ 10%)
-        target_pct = np.clip(target_pct, 0.02, 0.10)
-
-        if short_ma.iloc[-1] > long_ma.iloc[-1] and rsi_value < 70 and macd_value > signal.iloc[-1]:
+        if len(daily_returns) < 5:
+            # Not enough data for dynamic target, fallback to 5%
+            target_pct = 0.05
+            nan_flag = True
+        else:
+            daily_vol = daily_returns.std()
+            target_pct = daily_vol * np.sqrt(5)
+            target_pct = np.clip(target_pct, 0.02, 0.10)
+            nan_flag = np.isnan(target_pct)
+        
+        # Now use this in your suggestion
+        if nan_flag or np.isnan(target_pct):
+            target_str = "数据不足, 使用默认5%"
+            target_price = current_price * 1.05
+            pct_str = "5.0"
+        else:
+            target_str = f"按历史波动率{target_pct*100:.1f}%"
             target_price = current_price * (1 + target_pct)
-            suggestion = f"📈 建议关注买入机会 (动态目标价约 ¥{target_price:.2f}, 按历史波动率{target_pct*100:.1f}%)"
+            pct_str = f"{target_pct*100:.1f}"
+        
+        if short_ma.iloc[-1] > long_ma.iloc[-1] and rsi_value < 70 and macd_value > signal.iloc[-1]:
+            suggestion = f"📈 建议关注买入机会 (动态目标价约 ¥{target_price:.2f}, {target_str})"
         elif short_ma.iloc[-1] < long_ma.iloc[-1] and rsi_value > 70 and macd_value < signal.iloc[-1]:
-            target_price = current_price * (1 - target_pct)
-            suggestion = f"📉 建议考虑止盈或卖出 (动态支撑位约 ¥{target_price:.2f}, 按历史波动率{target_pct*100:.1f}%)"
+            if nan_flag or np.isnan(target_pct):
+                target_price = current_price * 0.95
+            else:
+                target_price = current_price * (1 - target_pct)
+            suggestion = f"📉 建议考虑止盈或卖出 (动态支撑位约 ¥{target_price:.2f}, {target_str})"
 
         # Combine with 2560策略
         suggestion = f"{suggestion}\n{signal_2560}"
