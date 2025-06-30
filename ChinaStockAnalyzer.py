@@ -185,36 +185,74 @@ for ticker in portfolio["Ticker"]:
         )
 
         # ----- Operation Suggestions -----
-        # Calculate daily returns and volatility
+        # --- Calculate Daily Returns, Volatility, ATR ---
+        N = 5  # look-ahead days
+        min_pct = 0.02
+        max_pct = 0.10
+        
         daily_returns = df["收盘"].pct_change().dropna()
-        if len(daily_returns) < 5:
-            # Not enough data for dynamic target, fallback to 5%
-            target_pct = 0.05
-            nan_flag = True
-        else:
-            daily_vol = daily_returns.std()
-            target_pct = daily_vol * np.sqrt(5)
-            target_pct = np.clip(target_pct, 0.02, 0.10)
-            nan_flag = np.isnan(target_pct)
+        daily_vol = daily_returns.std()
+        vol_target_pct = np.clip(daily_vol * np.sqrt(N), min_pct, max_pct)
         
-        # Now use this in your suggestion
-        if nan_flag or np.isnan(target_pct):
-            target_str = "数据不足, 使用默认5%"
-            target_price = current_price * 1.05
-            pct_str = "5.0"
-        else:
-            target_str = f"按历史波动率{target_pct*100:.1f}%"
-            target_price = current_price * (1 + target_pct)
-            pct_str = f"{target_pct*100:.1f}"
+        current_price = df["收盘"].iloc[-1]
         
+        # ATR as alternative (using ta library, robust to gaps)
+        try:
+            atr_series = ta.volatility.AverageTrueRange(
+                high=df['最高'],
+                low=df['最低'],
+                close=df['收盘'],
+                window=14
+            ).average_true_range()
+            atr = atr_series.iloc[-1]
+            atr_target_price_up = current_price + atr * N
+            atr_target_price_down = current_price - atr * N
+        except Exception as e:
+            atr = None
+            atr_target_price_up = None
+            atr_target_price_down = None
+        
+        # Nearest resistance/support (using 20-day high/low as simple proxy)
+        resistance = df['收盘'].rolling(window=20).max().iloc[-2]  # most recent 20-day high before today
+        support = df['收盘'].rolling(window=20).min().iloc[-2]     # most recent 20-day low before today
+        
+        # --- Target Price Suggestion Logic ---
+        # Use volatility-based target as base, adjust for resistance/support
+        
+        # Buy signal
         if short_ma.iloc[-1] > long_ma.iloc[-1] and rsi_value < 70 and macd_value > signal.iloc[-1]:
-            suggestion = f"📈 建议关注买入机会 (动态目标价约 ¥{target_price:.2f}, {target_str})"
+            vol_based_up = current_price * (1 + vol_target_pct)
+            # Use min of volatility-based target, ATR target, and resistance as final target
+            targets_up = [vol_based_up]
+            if atr_target_price_up:
+                targets_up.append(atr_target_price_up)
+            if resistance and resistance > current_price:
+                targets_up.append(resistance)
+            final_target_up = min(targets_up)
+            suggestion = (
+                f"📈 建议关注买入机会 (动态目标价约 ¥{final_target_up:.2f}, "
+                f"按历史波动率{vol_target_pct*100:.1f}%)"
+                + (f"\nATR估算目标: ¥{atr_target_price_up:.2f}" if atr_target_price_up else "")
+                + f"\n技术阻力位: ¥{resistance:.2f}" if resistance else ""
+            )
+        
+        # Sell signal
         elif short_ma.iloc[-1] < long_ma.iloc[-1] and rsi_value > 70 and macd_value < signal.iloc[-1]:
-            if nan_flag or np.isnan(target_pct):
-                target_price = current_price * 0.95
-            else:
-                target_price = current_price * (1 - target_pct)
-            suggestion = f"📉 建议考虑止盈或卖出 (动态支撑位约 ¥{target_price:.2f}, {target_str})"
+            vol_based_down = current_price * (1 - vol_target_pct)
+            targets_down = [vol_based_down]
+            if atr_target_price_down:
+                targets_down.append(atr_target_price_down)
+            if support and support < current_price:
+                targets_down.append(support)
+            final_target_down = max(targets_down)
+            suggestion = (
+                f"📉 建议考虑止盈或卖出 (动态支撑位约 ¥{final_target_down:.2f}, "
+                f"按历史波动率{vol_target_pct*100:.1f}%)"
+                + (f"\nATR估算支撑: ¥{atr_target_price_down:.2f}" if atr_target_price_down else "")
+                + f"\n技术支撑位: ¥{support:.2f}" if support else ""
+            )
+        
+        # Neutral/hold
         else:
             suggestion = "🔍 继续观察走势"
 
