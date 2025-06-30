@@ -8,6 +8,7 @@ import seaborn as sns
 from openai import OpenAI
 from datetime import timedelta
 from functools import reduce
+import time
 
 # import urllib3
 # urllib3.disable_warnings()
@@ -83,9 +84,23 @@ price_data = {}
 buy_sell_suggestions = []
 special_signals = []
 
+RETRIES = 3
+PAUSE_SECONDS = 2
+
 for ticker in portfolio["Ticker"]:
     try:
-        df = ak.stock_zh_a_hist(symbol=ticker, adjust="qfq")
+        # Retry logic for stock_zh_a_hist
+        df = None
+        for attempt in range(RETRIES):
+            try:
+                df = ak.stock_zh_a_hist(symbol=ticker, adjust="qfq")
+                break  # success
+            except Exception as inner_e:
+                if attempt < RETRIES - 1:
+                    time.sleep(PAUSE_SECONDS)
+                else:
+                    raise inner_e  # raise after final attempt
+
         df["date"] = pd.to_datetime(df["日期"])
         df.set_index("date", inplace=True)
         df = df.sort_index()
@@ -144,7 +159,7 @@ for ticker in portfolio["Ticker"]:
             suggestion = f"📈 建议关注买入机会 (短期目标价约 ¥{target_price:.2f})"
         elif short_ma.iloc[-1] < long_ma.iloc[-1] and rsi_value > 70 and macd_value < signal.iloc[-1]:
             target_price = df["收盘"].iloc[-1] * 0.95
-            suggestion = f"📉 建议考虑止盟或卖出 (短期支撑位约 ¥{target_price:.2f})"
+            suggestion = f"📉 建议考虑止盈或卖出 (短期支撑位约 ¥{target_price:.2f})"
 
         buy_sell_suggestions.append({
             "代码": ticker,
@@ -162,6 +177,7 @@ for ticker in portfolio["Ticker"]:
             "年化波动率 %": volatility * 100,
             "夏普比率": sharpe_ratio
         })
+
     except Exception as e:
         st.warning(f"获取 {ticker} 数据时出错: {e}")
 
