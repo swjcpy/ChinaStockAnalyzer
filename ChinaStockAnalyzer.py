@@ -186,18 +186,25 @@ for ticker in portfolio["Ticker"]:
         )
 
         # ----- Operation Suggestions -----
-        # --- Calculate Daily Returns, Volatility, ATR ---
-        N = 5  # look-ahead days
+        # --- Target Calculation (Merged Robust Logic) ---
+        N = 5  # short-term window
         min_pct = 0.02
         max_pct = 0.10
         
+        # Daily returns and volatility
         daily_returns = df["收盘"].pct_change().dropna()
-        daily_vol = daily_returns.std()
-        vol_target_pct = np.clip(daily_vol * np.sqrt(N), min_pct, max_pct)
-        
         current_price = df["收盘"].iloc[-1]
         
-        # ATR as alternative (using ta library, robust to gaps)
+        if len(daily_returns) < N:
+            vol_target_pct = 0.05
+            nan_flag = True
+        else:
+            daily_vol = daily_returns.std()
+            vol_target_pct = daily_vol * np.sqrt(N)
+            vol_target_pct = np.clip(vol_target_pct, min_pct, max_pct)
+            nan_flag = np.isnan(vol_target_pct)
+        
+        # ATR as alternative (with try/except)
         try:
             atr_series = ta.volatility.AverageTrueRange(
                 high=df['最高'],
@@ -206,54 +213,64 @@ for ticker in portfolio["Ticker"]:
                 window=14
             ).average_true_range()
             atr = atr_series.iloc[-1]
-            atr_target_price_up = current_price + atr * N
-            atr_target_price_down = current_price - atr * N
+            if np.isnan(atr):
+                atr = None
+            atr_target_price_up = current_price + (atr * N) if atr is not None else None
+            atr_target_price_down = current_price - (atr * N) if atr is not None else None
         except Exception as e:
             atr = None
             atr_target_price_up = None
             atr_target_price_down = None
         
-        # Nearest resistance/support (using 20-day high/low as simple proxy)
-        resistance = df['收盘'].rolling(window=20).max().iloc[-2]  # most recent 20-day high before today
-        support = df['收盘'].rolling(window=20).min().iloc[-2]     # most recent 20-day low before today
+        # Nearest resistance/support (20-day high/low)
+        resistance = df['收盘'].rolling(window=20).max().iloc[-2] if len(df) >= 21 else None
+        support = df['收盘'].rolling(window=20).min().iloc[-2] if len(df) >= 21 else None
         
-        # --- Target Price Suggestion Logic ---
-        # Use volatility-based target as base, adjust for resistance/support
-        
-        # Buy signal
+        # --- Target Suggestion Logic (with robust fallback) ---
+        if nan_flag or np.isnan(vol_target_pct):
+            target_str = "数据不足, 使用默认5%"
+            target_pct_display = 5.0
+        else:
+            target_str = f"按历史波动率{vol_target_pct*100:.1f}%"
+            target_pct_display = vol_target_pct * 100
+        # --- Buy signal ---
         if short_ma.iloc[-1] > long_ma.iloc[-1] and rsi_value < 70 and macd_value > signal.iloc[-1]:
-            vol_based_up = current_price * (1 + vol_target_pct)
-            # Use min of volatility-based target, ATR target, and resistance as final target
+            vol_based_up = current_price * (1 + vol_target_pct) if not np.isnan(current_price) and not np.isnan(vol_target_pct) else None
             targets_up = [vol_based_up]
             if atr_target_price_up:
                 targets_up.append(atr_target_price_up)
             if resistance and resistance > current_price:
                 targets_up.append(resistance)
-            final_target_up = min(targets_up)
+            # Filter out None/nan
+            targets_up_valid = [x for x in targets_up if x is not None and not np.isnan(x)]
+            if targets_up_valid:
+                final_target_up = min(targets_up_valid)
+            else:
+                final_target_up = current_price * 1.05  # fallback
             suggestion = (
-                f"📈 建议关注买入机会 (动态目标价约 ¥{final_target_up:.2f}, "
-                f"按历史波动率{vol_target_pct*100:.1f}%)"
+                f"📈 建议关注买入机会 (动态目标价约 ¥{final_target_up:.2f}, {target_str})"
                 + (f"\nATR估算目标: ¥{atr_target_price_up:.2f}" if atr_target_price_up else "")
-                + f"\n技术阻力位: ¥{resistance:.2f}" if resistance else ""
+                + (f"\n技术阻力位: ¥{resistance:.2f}" if resistance else "")
             )
-        
-        # Sell signal
+        # --- Sell signal ---
         elif short_ma.iloc[-1] < long_ma.iloc[-1] and rsi_value > 70 and macd_value < signal.iloc[-1]:
-            vol_based_down = current_price * (1 - vol_target_pct)
+            vol_based_down = current_price * (1 - vol_target_pct) if not np.isnan(current_price) and not np.isnan(vol_target_pct) else None
             targets_down = [vol_based_down]
             if atr_target_price_down:
                 targets_down.append(atr_target_price_down)
             if support and support < current_price:
                 targets_down.append(support)
-            final_target_down = max(targets_down)
+            targets_down_valid = [x for x in targets_down if x is not None and not np.isnan(x)]
+            if targets_down_valid:
+                final_target_down = max(targets_down_valid)
+            else:
+                final_target_down = current_price * 0.95  # fallback
             suggestion = (
-                f"📉 建议考虑止盈或卖出 (动态支撑位约 ¥{final_target_down:.2f}, "
-                f"按历史波动率{vol_target_pct*100:.1f}%)"
+                f"📉 建议考虑止盈或卖出 (动态支撑位约 ¥{final_target_down:.2f}, {target_str})"
                 + (f"\nATR估算支撑: ¥{atr_target_price_down:.2f}" if atr_target_price_down else "")
-                + f"\n技术支撑位: ¥{support:.2f}" if support else ""
+                + (f"\n技术支撑位: ¥{support:.2f}" if support else "")
             )
-        
-        # Neutral/hold
+        # --- Neutral/hold ---
         else:
             suggestion = "🔍 继续观察走势"
 
