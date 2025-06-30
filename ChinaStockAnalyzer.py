@@ -96,7 +96,7 @@ price_data = {}
 buy_sell_suggestions = []
 special_signals = []
 
-RETRIES = 3
+RETRIES = 5
 PAUSE_SECONDS = 2
 
 for ticker in portfolio["Ticker"]:
