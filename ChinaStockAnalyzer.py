@@ -123,29 +123,40 @@ for ticker in portfolio["Ticker"]:
         middle_ma = df["收盘"].rolling(window=25).mean()
         long_ma = df["收盘"].rolling(window=60).mean()
 
-        ma5_now = short_ma.iloc[-1] if len(short_ma) >= 1 else np.nan
-        ma25_now = middle_ma.iloc[-1] if len(middle_ma) >= 1 else np.nan
-        ma60_now = long_ma.iloc[-1] if len(long_ma) >= 1 else np.nan
-        ma5_prev = short_ma.iloc[-2] if len(short_ma) >= 2 else np.nan
-        ma60_prev = long_ma.iloc[-2] if len(long_ma) >= 2 else np.nan
-
-        # 25日均线趋势判断
-        if len(middle_ma) >= 2:
-            trend = "上升" if ma25_now > middle_ma.iloc[-2] else "下降"
-        else:
-            trend = "未知"
-
-        # 2560策略信号
-        signal_2560 = ""
-        if not np.isnan(ma5_prev) and not np.isnan(ma60_prev) and not np.isnan(ma5_now) and not np.isnan(ma60_now):
-            if (ma5_prev < ma60_prev) and (ma5_now > ma60_now):
-                signal_2560 = "📈 2560策略: 5日均线金叉60日均线，短线买入信号"
-            elif (ma5_prev > ma60_prev) and (ma5_now < ma60_now):
-                signal_2560 = "📉 2560策略: 5日均线死叉60日均线，短线卖出信号"
+        # 计算均线
+        ma5_now = short_ma.iloc[-1]
+        ma5_prev = short_ma.iloc[-2]
+        ma25_now = middle_ma.iloc[-1]
+        ma25_prev = middle_ma.iloc[-2]
+        ma60_now = long_ma.iloc[-1]
+        ma60_prev = long_ma.iloc[-2]
+        
+        vol_ma5_now = df["成交量"].rolling(window=5).mean().iloc[-1]
+        vol_ma60_now = df["成交量"].rolling(window=60).mean().iloc[-1]
+        
+        # 25日均线趋势
+        trend_25 = "上升" if ma25_now > ma25_prev else "下降"
+        
+        signal_2560 = "2560策略: 数据不足"
+        
+        # 2560策略买入条件
+        if (
+            not np.isnan(ma5_now) and not np.isnan(ma5_prev) and not np.isnan(ma25_now) and not np.isnan(ma25_prev)
+            and not np.isnan(vol_ma5_now) and not np.isnan(vol_ma60_now)
+        ):
+            if (ma25_now > ma25_prev):  # 25日均线上升
+                # 5日均线上穿25日均线，且量能满足
+                if (ma5_prev < ma25_prev) and (ma5_now > ma25_now) and (vol_ma5_now > vol_ma60_now):
+                    signal_2560 = "📈 2560策略: 满足所有条件，短线买入信号（25日均线上升, 5日均线上穿25日, 5日量能>60日量能）"
+                # 5日均线回踩25日均线，且量能满足
+                elif (abs(ma5_now - ma25_now) < 1e-4) and (vol_ma5_now > vol_ma60_now):
+                    signal_2560 = "📈 2560策略: 满足回踩条件，关注买入（25日均线上升, 5日回踩25日, 5日量能>60日量能）"
+                else:
+                    signal_2560 = f"2560策略: 当前25日均线趋势{trend_25}，条件未全部满足"
             else:
-                signal_2560 = f"2560策略: 当前趋势{trend}，暂无金叉或死叉"
+                signal_2560 = f"2560策略: 当前25日均线趋势{trend_25}，条件未全部满足"
         else:
-            signal_2560 = f"2560策略: 数据不足"
+            signal_2560 = "2560策略: 数据不足"
 
         # Technical indicators
         daily_returns = df["收盘"].pct_change().dropna()
