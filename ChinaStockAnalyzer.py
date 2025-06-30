@@ -9,13 +9,15 @@ from openai import OpenAI
 from datetime import timedelta
 from functools import reduce
 import time
+# from streamlit_js_eval import streamlit_js_eval
 
-# import urllib3
-# urllib3.disable_warnings()
+import urllib3
+urllib3.disable_warnings()
 
 import akshare as ak
 import requests
 requests.packages.urllib3.disable_warnings()  # 关闭警告
+
 
 # patch akshare 用的 requests，使其不验证证书
 original_get = requests.get
@@ -33,11 +35,12 @@ st.title("📊 中国股票分析器")
 st.sidebar.header("投资组合输入")
 uploaded_file = st.sidebar.file_uploader("上传你的投资组合CSV文件", type=["csv"])
 st.sidebar.markdown("示例格式(**股票代码无需市场前缀**):")
-st.sidebar.code("Ticker\n600519\n000001")
+st.sidebar.code("Ticker,Name\n600519,贵州茅台\n000001,平安银行")
 
 # --- Default Example Portfolio ---
 default_portfolio = pd.DataFrame({
-    "Ticker": ["600519", "600123"]
+    "Ticker": ["600519", "000001"],
+    "Name": ["贵州茅台", "平安银行"]
 })
 
 try:
@@ -74,8 +77,17 @@ else:
     st.info("使用示例投资组合")
     portfolio = default_portfolio.copy()
 
-# --- Calculate Weights from Values ---
-portfolio["Name"] = portfolio["Ticker"].astype(str).map(code_name_map)
+# --- Add Name column if missing ---
+if "Name" not in portfolio.columns:
+    portfolio["Name"] = ""
+
+# --- Build stock name ---
+def get_stock_name(row):
+    code = str(row["Ticker"]).zfill(6)
+    # Prefer AkShare mapping, fallback to uploaded Name, finally "未知"
+    return code_name_map.get(code) or row.get("Name") or "未知"
+
+portfolio["Name"] = portfolio.apply(get_stock_name, axis=1)
 
 # --- Fetch Data ---
 st.subheader("投资组合概览")
@@ -94,26 +106,53 @@ for ticker in portfolio["Ticker"]:
         for attempt in range(RETRIES):
             try:
                 df = ak.stock_zh_a_hist(symbol=ticker, adjust="qfq")
-                break  # success
+                break
             except Exception as inner_e:
                 if attempt < RETRIES - 1:
                     time.sleep(PAUSE_SECONDS)
                 else:
-                    raise inner_e  # raise after final attempt
+                    raise inner_e
 
         df["date"] = pd.to_datetime(df["日期"])
         df.set_index("date", inplace=True)
         df = df.sort_index()
 
+        # Moving averages for 2560策略
+        short_ma = df["收盘"].rolling(window=5).mean()
+        middle_ma = df["收盘"].rolling(window=25).mean()
+        long_ma = df["收盘"].rolling(window=60).mean()
+
+        ma5_now = short_ma.iloc[-1] if len(short_ma) >= 1 else np.nan
+        ma25_now = middle_ma.iloc[-1] if len(middle_ma) >= 1 else np.nan
+        ma60_now = long_ma.iloc[-1] if len(long_ma) >= 1 else np.nan
+        ma5_prev = short_ma.iloc[-2] if len(short_ma) >= 2 else np.nan
+        ma60_prev = long_ma.iloc[-2] if len(long_ma) >= 2 else np.nan
+
+        # 25日均线趋势判断
+        if len(middle_ma) >= 2:
+            trend = "上升" if ma25_now > middle_ma.iloc[-2] else "下降"
+        else:
+            trend = "未知"
+
+        # 2560策略信号
+        signal_2560 = ""
+        if not np.isnan(ma5_prev) and not np.isnan(ma60_prev) and not np.isnan(ma5_now) and not np.isnan(ma60_now):
+            if (ma5_prev < ma60_prev) and (ma5_now > ma60_now):
+                signal_2560 = "📈 2560策略: 5日均线金叉60日均线，短线买入信号"
+            elif (ma5_prev > ma60_prev) and (ma5_now < ma60_now):
+                signal_2560 = "📉 2560策略: 5日均线死叉60日均线，短线卖出信号"
+            else:
+                signal_2560 = f"2560策略: 当前趋势{trend}，暂无金叉或死叉"
+        else:
+            signal_2560 = f"2560策略: 数据不足"
+
+        # Technical indicators
         daily_returns = df["收盘"].pct_change().dropna()
         volatility = daily_returns.std() * np.sqrt(252)
         sharpe_ratio = (daily_returns.mean() * 252) / (daily_returns.std() * np.sqrt(252))
-
         price_data[ticker] = df["收盘"]
         current_price = df["收盘"].iloc[-1]
 
-        short_ma = df["收盘"].rolling(window=5).mean()
-        long_ma = df["收盘"].rolling(window=20).mean()
         delta = df["收盘"].diff()
         gain = delta.clip(lower=0)
         loss = -delta.clip(upper=0)
@@ -135,22 +174,17 @@ for ticker in portfolio["Ticker"]:
         obv[df["收盘"].diff() < 0] *= -1
         obv = obv.cumsum()
         obv_trend = obv.diff().mean()
-
         vol_spike = df["成交量"].iloc[-1] > 1.5 * df["成交量"].rolling(10).mean().iloc[-1]
 
-        signal_match = macd_prev < signal_prev and macd_value > signal.iloc[-1] and rsi_value < 70 and obv_trend > 0 and vol_spike
+        signal_match = (
+            macd_prev < signal_prev and
+            macd_value > signal.iloc[-1] and
+            rsi_value < 70 and
+            obv_trend > 0 and
+            vol_spike
+        )
 
-        if signal_match:
-            special_signals.append({
-                "代码": ticker,
-                "名称": portfolio.loc[portfolio["Ticker"] == ticker, "Name"].values[0],
-                "当前价格": current_price,
-                "RSI": round(rsi_value, 2),
-                "MACD": round(macd_value, 2),
-                "OBV变化": round(obv_trend, 2),
-                "成交量突增": "是" if vol_spike else "否"
-            })
-
+        # ----- Operation Suggestions -----
         suggestion = "🔍 继续观察走势"
         target_price = df["收盘"].iloc[-1]
 
@@ -161,14 +195,36 @@ for ticker in portfolio["Ticker"]:
             target_price = df["收盘"].iloc[-1] * 0.95
             suggestion = f"📉 建议考虑止盈或卖出 (短期支撑位约 ¥{target_price:.2f})"
 
+        # Combine with 2560策略
+        suggestion = f"{suggestion}\n{signal_2560}"
+
         buy_sell_suggestions.append({
             "代码": ticker,
             "名称": portfolio.loc[portfolio["Ticker"] == ticker, "Name"].values[0],
             "操作建议": suggestion,
             "RSI": round(rsi_value, 2),
-            "MACD": round(macd_value, 2)
+            "MACD": round(macd_value, 2),
+            "MA5": round(ma5_now, 2) if not pd.isna(ma5_now) else "",
+            "MA25": round(ma25_now, 2) if not pd.isna(ma25_now) else "",
+            "MA60": round(ma60_now, 2) if not pd.isna(ma60_now) else ""
         })
 
+        # ----- Special Signals -----
+        if signal_match:
+            special_signals.append({
+                "代码": ticker,
+                "名称": portfolio.loc[portfolio["Ticker"] == ticker, "Name"].values[0],
+                "当前价格": current_price,
+                "RSI": round(rsi_value, 2),
+                "MACD": round(macd_value, 2),
+                "OBV变化": round(obv_trend, 2),
+                "成交量突增": "是" if vol_spike else "否",
+                "MA5": round(ma5_now, 2) if not pd.isna(ma5_now) else "",
+                "MA25": round(ma25_now, 2) if not pd.isna(ma25_now) else "",
+                "MA60": round(ma60_now, 2) if not pd.isna(ma60_now) else ""
+            })
+
+        # ----- Overview Table -----
         results.append({
             "代码": ticker,
             "名称": portfolio.loc[portfolio["Ticker"] == ticker, "Name"].values[0],
