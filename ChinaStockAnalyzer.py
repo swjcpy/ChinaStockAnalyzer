@@ -185,15 +185,20 @@ for ticker in portfolio["Ticker"]:
         )
 
         # ----- Operation Suggestions -----
-        suggestion = "🔍 继续观察走势"
-        target_price = df["收盘"].iloc[-1]
+        # Calculate daily returns and volatility
+        daily_returns = df["收盘"].pct_change().dropna()
+        daily_vol = daily_returns.std()
+        # Use 1-week swing (about 5 days)
+        target_pct = daily_vol * np.sqrt(5)
+        # Clip to reasonable range (2% ~ 10%)
+        target_pct = np.clip(target_pct, 0.02, 0.10)
 
         if short_ma.iloc[-1] > long_ma.iloc[-1] and rsi_value < 70 and macd_value > signal.iloc[-1]:
-            target_price = df["收盘"].iloc[-1] * 1.05
-            suggestion = f"📈 建议关注买入机会 (短期目标价约 ¥{target_price:.2f})"
+            target_price = current_price * (1 + target_pct)
+            suggestion = f"📈 建议关注买入机会 (动态目标价约 ¥{target_price:.2f}, 按历史波动率{target_pct*100:.1f}%)"
         elif short_ma.iloc[-1] < long_ma.iloc[-1] and rsi_value > 70 and macd_value < signal.iloc[-1]:
-            target_price = df["收盘"].iloc[-1] * 0.95
-            suggestion = f"📉 建议考虑止盈或卖出 (短期支撑位约 ¥{target_price:.2f})"
+            target_price = current_price * (1 - target_pct)
+            suggestion = f"📉 建议考虑止盈或卖出 (动态支撑位约 ¥{target_price:.2f}, 按历史波动率{target_pct*100:.1f}%)"
 
         # Combine with 2560策略
         suggestion = f"{suggestion}\n{signal_2560}"
