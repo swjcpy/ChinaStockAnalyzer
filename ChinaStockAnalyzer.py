@@ -215,6 +215,8 @@ for ticker in portfolio["Ticker"]:
             else:
                 target_price = current_price * (1 - target_pct)
             suggestion = f"📉 建议考虑止盈或卖出 (动态支撑位约 ¥{target_price:.2f}, {target_str})"
+        else:
+            suggestion = "🔍 继续观察走势"
 
         # Combine with 2560策略
         suggestion = f"{suggestion}\n{signal_2560}"
