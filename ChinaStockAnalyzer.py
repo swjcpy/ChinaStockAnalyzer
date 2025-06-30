@@ -9,6 +9,7 @@ from openai import OpenAI
 from datetime import timedelta
 from functools import reduce
 import time
+import ta
 # from streamlit_js_eval import streamlit_js_eval
 
 import urllib3
