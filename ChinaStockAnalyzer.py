@@ -97,7 +97,7 @@ price_data = {}
 buy_sell_suggestions = []
 special_signals = []
 
-RETRIES = 5
+RETRIES = 3
 PAUSE_SECONDS = 2
 
 for ticker in portfolio["Ticker"]:
@@ -186,6 +186,7 @@ for ticker in portfolio["Ticker"]:
         )
 
         # ----- Operation Suggestions -----
+        suggestion = "🔍 继续观察走势"
         # --- Target Calculation (Merged Robust Logic) ---
         N = 5  # short-term window
         min_pct = 0.02
