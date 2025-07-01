@@ -315,13 +315,26 @@ for ticker in portfolio["Ticker"]:
                 "MA60": round(ma60_now, 2) if not pd.isna(ma60_now) else ""
             })
 
+        # 只用最近1年（252个交易日）的数据
+        if len(df) > 252:
+            df_last_year = df.iloc[-252:]
+        else:
+            df_last_year = df.copy()
+        
+        start_price = df_last_year["收盘"].iloc[0]
+        end_price = df_last_year["收盘"].iloc[-1]
+        
+        一年回报率 = (end_price / start_price - 1) * 100
+        daily_returns_last_year = df_last_year["收盘"].pct_change().dropna()
+        年化波动率 = daily_returns_last_year.std() * np.sqrt(252) * 100
+
         # ----- Overview Table -----
         results.append({
             "代码": ticker,
             "名称": portfolio.loc[portfolio["Ticker"] == ticker, "Name"].values[0],
             "当前价格": current_price,
-            "一年回报率 %": ((df["收盘"].iloc[-1] / df["收盘"].iloc[0]) - 1) * 100,
-            "年化波动率 %": volatility * 100,
+            "一年回报率 %": 一年回报率,
+            "年化波动率 %": 年化波动率,
             "夏普比率": sharpe_ratio
         })
 
