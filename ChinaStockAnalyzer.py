@@ -233,6 +233,22 @@ for ticker in portfolio["Ticker"]:
             atr = None
             atr_target_price_up = None
             atr_target_price_down = None
+
+        # --- OBV Calculation ---
+        df["obv"] = ta.volume.OnBalanceVolumeIndicator(
+            close=df["收盘"],
+            volume=df["成交量"]
+        ).on_balance_volume()
+
+        df["obv_ma34"] = df["obv"].rolling(window=34).mean()
+
+        # --- Generate OBV 34 Buy/Sell Signals ---
+        df["obv_signal"] = 0
+        df["obv_signal"] = np.where(df["obv"] > df["obv_ma34"], 1, 0)  # 1 = above (potential buy)
+        df["obv_signal"] = np.where(df["obv"] < df["obv_ma34"], -1, df["obv_signal"])  # -1 = below (potential sell)
+        # Optionally, find signal changes (crossovers)
+        df["obv_trade_signal"] = df["obv_signal"].diff()
+        latest_signal = df["obv_trade_signal"].dropna().iloc[-1]
         
         # Nearest resistance/support (20-day high/low)
         resistance = df['收盘'].rolling(window=20).max().iloc[-2] if len(df) >= 21 else None
@@ -246,7 +262,7 @@ for ticker in portfolio["Ticker"]:
             target_str = f"按历史波动率{vol_target_pct*100:.1f}%"
             target_pct_display = vol_target_pct * 100
         # --- Buy signal ---
-        if short_ma.iloc[-1] > long_ma.iloc[-1] and rsi_value < 70 and macd_value > signal.iloc[-1]:
+        if (short_ma.iloc[-1] > long_ma.iloc[-1] and rsi_value < 70 and macd_value > signal.iloc[-1]) or (latest_signal == 2):
             vol_based_up = current_price * (1 + vol_target_pct) if not np.isnan(current_price) and not np.isnan(vol_target_pct) else None
             targets_up = [vol_based_up]
             if atr_target_price_up:
@@ -265,7 +281,7 @@ for ticker in portfolio["Ticker"]:
                 + (f"\n技术阻力位: ¥{resistance:.2f}" if resistance else "")
             )
         # --- Sell signal ---
-        elif short_ma.iloc[-1] < long_ma.iloc[-1] and rsi_value > 70 and macd_value < signal.iloc[-1]:
+        elif (short_ma.iloc[-1] < long_ma.iloc[-1] and rsi_value > 70 and macd_value < signal.iloc[-1]) or (latest_signal == -2):
             vol_based_down = current_price * (1 - vol_target_pct) if not np.isnan(current_price) and not np.isnan(vol_target_pct) else None
             targets_down = [vol_based_down]
             if atr_target_price_down:
@@ -289,6 +305,13 @@ for ticker in portfolio["Ticker"]:
         # Combine with 2560策略
         suggestion = f"{suggestion}\n{signal_2560}"
 
+        if latest_signal == 2:
+            obv_signal = "📈 OBV金叉（突破34日均线）"
+        elif latest_signal == -2:
+            obv_signal = "📉 OBV死叉（跌破34日均线）"
+        else:
+            obv_signal = "🔍 OBV维持趋势中"
+
         buy_sell_suggestions.append({
             "代码": ticker,
             "名称": portfolio.loc[portfolio["Ticker"] == ticker, "Name"].values[0],
@@ -297,7 +320,8 @@ for ticker in portfolio["Ticker"]:
             "MACD": round(macd_value, 2),
             "MA5": round(ma5_now, 2) if not pd.isna(ma5_now) else "",
             "MA25": round(ma25_now, 2) if not pd.isna(ma25_now) else "",
-            "MA60": round(ma60_now, 2) if not pd.isna(ma60_now) else ""
+            "MA60": round(ma60_now, 2) if not pd.isna(ma60_now) else "",
+            "OBV 34": obv_signal
         })
 
         # ----- Special Signals -----
@@ -376,7 +400,7 @@ if deepseek_api_key:
 {result_df.to_string(index=False)}
 
 [操作建议]
-{suggestion_df.to_string(index=False)}
+{suggestion_df.drop(columns=["操作建议"]).to_string(index=False)}
 
 [技术筛选匹配]
 {special_df.to_string(index=False)}
